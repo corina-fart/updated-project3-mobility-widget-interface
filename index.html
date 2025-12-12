@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zero-G Widget Grid</title>
+    
+    <style>
+        /* --- Modern & Accessible Theme Variables --- */
+        :root {
+            --bg-color: #0f172a;
+            --bg-pattern: rgba(255, 255, 255, 0.05);
+            --text-primary: #ffffff;
+            --text-secondary: #a3a3a3;
+            
+            /* Grayscale Accents */
+            --accent-blue: #ffffff;   /* Primary Action -> White */
+            --accent-pink: #cccccc;   /* Secondary -> Light Gray */
+            --accent-green: #ffffff;  /* Success -> White */
+            --accent-red: #808080;    /* Destructive/Cursor -> Mid Gray */
+            --accent-amber: #e5e5e5;  /* Warning/Timer -> Light Gray */
+            
+            --glass-bg: rgba(30, 30, 30, 0.9); /* Solid-ish dark gray */
+            
+            /* Borders and Shadows removed per request */
+            --glass-blur: 0px; 
+            --shadow-sm: none; 
+            --shadow-lg: none; 
+            --font-family: 'Helvetica', 'Arial', sans-serif; 
+            --radius-md: 12px;
+            --radius-lg: 24px;
+            --radius-full: 9999px;
+        }
+
+        /* --- Core Reset & Layout --- */
+        body, html {
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            overflow: hidden; font-family: var(--font-family);
+            background-color: var(--bg-color); color: var(--text-primary);
+            user-select: none;
+        }
+
+        /* Accessible Grid Background */
+        body {
+            background-image: 
+                linear-gradient(var(--bg-pattern) 1px, transparent 1px),
+                linear-gradient(90deg, var(--bg-pattern) 1px, transparent 1px);
+            background-size: 80px 80px; 
+            background-position: -1px -1px;
+        }
+
+        /* --- Canvases --- */
+        #global-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+        #fog-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 52; pointer-events: none; opacity: 0; transition: opacity 0.8s ease-in-out; }
+        #fog-canvas.active { opacity: 1; }
+
+        /* --- Hidden Painting (Canvas Background) --- */
+        #hidden-painting {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 40; opacity: 0; pointer-events: none;
+            transition: opacity 0.5s;
+            /* Solid black background instead of gradient or blue */
+            background: #000000; 
+            display: flex; align-items: center; justify-content: center;
+        }
+        #hidden-painting.active { opacity: 1; }
+        .painting-placeholder-text { 
+            font-size: 3rem; 
+            font-weight: 800; 
+            color: #333333; 
+            letter-spacing: 0.05em; 
+            text-shadow: none; 
+        }
+
+        /* --- Controls --- */
+        #controls-container { position: fixed; top: 24px; right: 24px; z-index: 300; display: flex; gap: 16px; align-items: center; }
+        
+        .glass-panel { 
+            display: flex; align-items: center; gap: 12px; 
+            background: var(--glass-bg); 
+            padding: 10px 20px; 
+            border-radius: var(--radius-full); 
+            box-shadow: var(--shadow-sm); 
+            font-weight: 500; font-size: 0.95rem; 
+        }
+        
+        .glass-btn { 
+            width: 48px; height: 48px; 
+            border-radius: 50%; 
+            background: var(--glass-bg); 
+            color: var(--text-primary); 
+            font-size: 1.25rem; 
+            cursor: pointer; 
+            display: flex; align-items: center; justify-content: center; 
+            transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); 
+            box-shadow: var(--shadow-sm); 
+        }
+        .glass-btn:hover { background: #333333; transform: scale(1.1); }
+        .glass-btn.active { background: var(--accent-red); box-shadow: none; color: #fff; }
+        .glass-btn.pen-active { background: var(--accent-blue); box-shadow: none; color: #000; }
+
+        /* Switch */
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #333; transition: .3s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--accent-blue); }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        /* --- Dock --- */
+        .dock { 
+            position: absolute; top: 24px; left: 24px; 
+            width: 400px; height: 140px; 
+            /* Solid background instead of gradient */
+            background: #1a1a1a; 
+            border-radius: var(--radius-lg); 
+            z-index: 1; 
+            box-shadow: var(--shadow-lg); 
+            pointer-events: none; 
+        }
+        /* Removed the bottom gradient line */
+        .dock::after { display: none; }
+
+        /* --- Widgets (Game Sections) --- */
+        .widget { 
+            position: absolute; 
+            background-color: #ffffff; 
+            color: #000000;
+            border-radius: 0;
+            transform: translate(-50%, -50%); 
+            z-index: 10; 
+            transition: 
+                width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), 
+                height 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), 
+                left 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), 
+                top 0.5s cubic-bezier(0.2, 0.8, 0.2, 1),
+                background-color 0.4s ease-in-out,
+                color 0.4s ease-in-out;
+            display: flex; 
+            /* Changed to allow absolute positioning of children */
+            /* flex-direction: column; align-items: center; justify-content: center; */
+            overflow: hidden; 
+            cursor: pointer;
+            text-align: left;
+            padding: 0; /* Padding moved to text wrapper */
+            box-sizing: border-box;
+        }
+        
+        /* Hover Inversion */
+        .widget:hover, .widget.hand-hover {
+            background-color: #000000;
+            color: #ffffff;
+        }
+
+        /* Text Content Wrapper (Title + Desc) */
+        .widget-content-wrapper {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            padding: 20px; /* Decreased padding from 40px to 20px */
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+            pointer-events: none; 
+            opacity: 1;
+            transition: opacity 0.3s;
+            z-index: 2;
+            box-sizing: border-box;
+        }
+        
+        .widget.expanded .widget-content-wrapper { opacity: 0; }
+
+        /* Placeholder Image (Background Icon) */
+        .widget-placeholder-img {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            border-radius: 0;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20rem; /* Massive icon size */
+            color: inherit;
+            opacity: 0.05; /* Very subtle */
+            border: none;
+            transition: opacity 0.4s ease-in-out;
+            z-index: 0;
+        }
+        
+        .widget:hover .widget-placeholder-img, .widget.hand-hover .widget-placeholder-img {
+            opacity: 0.15; /* More visible on hover */
+        }
+
+        .widget-label { 
+            font-size: 36pt; /* Changed from 96pt to 36pt */
+            font-weight: 700; 
+            line-height: 0.9;
+            margin: 0;
+        }
+        
+        .widget-desc {
+            font-size: 12pt; /* Changed from 36pt to 12pt */
+            font-weight: 400;
+            color: inherit; /* Inherit from container */
+            max-width: 90%;
+            line-height: 1.1;
+            transition: color 0.4s ease-in-out;
+        }
+        
+        .widget.expanded { 
+            z-index: 50; 
+            background-color: #000000 !important; 
+            color: #ffffff; 
+            border: none;
+            border-radius: 0;
+            cursor: default;
+        }
+        
+        /* Close Button */
+        .close-btn { 
+            position: absolute; top: 30px; left: 30px; 
+            width: 48px; height: 48px; 
+            background: var(--accent-red); 
+            border-radius: 50%; 
+            display: flex; align-items: center; justify-content: center; 
+            color: #ffffff; font-size: 1.5rem; font-weight: bold; 
+            opacity: 0; pointer-events: none; transition: all 0.2s; 
+            z-index: 2000; box-shadow: var(--shadow-sm); 
+        }
+        .widget.expanded .close-btn { opacity: 1; pointer-events: auto; position: fixed; }
+        .close-btn.hovered { transform: scale(1.15); box-shadow: none; }
+
+        /* --- Painter UI --- */
+        #painter-ui {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none; 
+            gap: 20px;
+            z-index: 60;
+            pointer-events: auto; 
+        }
+        #painter-ui.active { display: flex; }
+        
+        .paint-tool-btn {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            color: var(--text-primary);
+            padding: 12px 24px;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            font-family: var(--font-family);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+        }
+        .paint-tool-btn.active {
+            background: #ffffff;
+            color: #000000;
+            border-color: #ffffff;
+        }
+        .paint-tool-btn:hover { transform: translateY(-2px); }
+
+        /* --- Stacker UI --- */
+        #stacker-ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 60; display: none; }
+        #stacker-ui.active { display: block; }
+        
+        /* Stacker Block - Solid White */
+        .stacker-block { 
+            position: absolute; 
+            background: #ffffff; 
+            border: 1px solid #000000; 
+            border-radius: 6px; 
+            box-shadow: none; 
+        }
+        
+        /* Stacker Base - Solid Dark Gray */
+        .stacker-base { 
+            position: absolute; 
+            width: 300px; height: 40px; 
+            background: #333333; 
+            border: 1px solid #555555; 
+            border-radius: 8px; 
+            box-shadow: none; 
+        }
+        
+        .stacker-spawner { 
+            position: absolute; top: 50%; right: 40px; 
+            width: 140px; height: 140px; 
+            transform: translateY(-50%); 
+            border-radius: 20px; 
+            display: flex; align-items: center; justify-content: center; 
+            text-align: center; font-weight: 600; color: #a3a3a3; 
+            background: rgba(255, 255, 255, 0.05); pointer-events: auto; 
+        }
+        .stacker-score { position: absolute; top: 100px; left: 50%; transform: translateX(-50%); font-size: 3rem; font-weight: 800; color: var(--text-primary); text-shadow: none; pointer-events: none; }
+        
+        .stacker-timer { position: absolute; top: 160px; left: 50%; transform: translateX(-50%); font-size: 2rem; font-weight: 700; color: var(--accent-amber); text-shadow: none; pointer-events: none; }
+
+        .stacker-game-over { 
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            text-align: center; background: #1a1a1a; padding: 50px; 
+            border-radius: 30px; 
+            display: none; pointer-events: auto; box-shadow: none; z-index: 3000; 
+        }
+        .stacker-game-over.visible { display: block !important; }
+        .restart-btn { margin-top: 25px; background: #ffffff; color: #000000; border: none; padding: 16px 32px; border-radius: 14px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: transform 0.2s, background-color 0.2s; }
+        .restart-btn:hover, .restart-btn.hovered { transform: scale(1.05); background: #e5e5e5; }
+
+        /* --- Wire Game UI --- */
+        #wire-game-ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 55; display: none; }
+        #wire-game-ui.active { display: block; }
+        #wire-svg { width: 100%; height: 100%; filter: none; }
+        .wire-path { fill: none; stroke: #333333; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+        
+        .wire-progress { 
+            fill: none; 
+            stroke: #ffffff; /* White progress */
+            stroke-width: 3; 
+            stroke-linecap: round; 
+            stroke-linejoin: round;
+            filter: none;
+            transition: stroke-dasharray 0.1s linear; 
+        }
+
+        .wire-path.buzz { stroke: #808080; filter: none; }
+        .wire-start { fill: #ffffff; stroke: #000; stroke-width: 2; }
+        .wire-end { fill: #808080; stroke: #fff; stroke-width: 2; }
+
+        /* --- Cursor --- */
+        .hand-cursor { 
+            position: absolute; width: 32px; height: 32px; 
+            background-color: var(--accent-red); 
+            border: 3px solid white; border-radius: 50%; 
+            box-shadow: none;
+            transform: translate(-50%, -50%); 
+            z-index: 1000; pointer-events: none; 
+            transition: background-color 0.2s, transform 0.1s; 
+        }
+        .hand-cursor.pinched { background-color: var(--accent-blue); transform: translate(-50%, -50%) scale(0.85); }
+        .hand-cursor.spread { background-color: var(--accent-pink); transform: translate(-50%, -50%) scale(1.15); }
+        .hand-cursor.ring-mode { background-color: transparent !important; border: 4px solid var(--accent-green); width: 50px; height: 50px; box-shadow: 0 0 20px rgba(255,255,255,0.2); }
+        .hand-cursor.ring-mode.failed { border-color: var(--accent-red); box-shadow: none; }
+        .trail-circle { position: absolute; width: 20px; height: 20px; background-color: white; border-radius: 50%; transform: translate(-50%, -50%); z-index: 999; pointer-events: none; opacity: 0.4; }
+
+        /* --- Webcam & Status --- */
+        #webcam { position: fixed; bottom: 24px; right: 24px; width: 180px; border-radius: 16px; box-shadow: none; transform: scaleX(-1); z-index: 2; opacity: 0.8; transition: opacity 0.3s; }
+        #webcam:hover { opacity: 1; }
+        #status { position: fixed; top: 30px; left: 30px; color: var(--text-primary); font-family: monospace; font-size: 0.85rem; background: #1a1a1a; padding: 8px 16px; border-radius: 8px; z-index: 100; }
+    </style>
+</head>
+<body>
+
+    <div id="status">Loading AI...</div>
+    
+    <canvas id="global-canvas"></canvas>
+    <div id="hidden-painting"><div class="painting-placeholder-text">Draw here</div></div>
+    <!-- Now acts as the drawing layer -->
+    <canvas id="fog-canvas"></canvas>
+    
+    <!-- Painter UI Controls -->
+    <div id="painter-ui">
+        <button class="paint-tool-btn active" id="btn-pencil">✏️ Pencil</button>
+        <button class="paint-tool-btn" id="btn-eraser">🧽 Eraser</button>
+    </div>
+
+    <div id="stacker-ui">
+        <div class="stacker-spawner">Pinch here<br>to grab block</div>
+        <div class="stacker-score">Score: <span id="stacker-score-val">0</span></div>
+        <div class="stacker-timer">Time: <span id="stacker-timer-val">2:30</span></div>
+        <div class="stacker-base" id="stacker-base"></div> 
+        <div class="stacker-game-over" id="stacker-game-over">
+            <h2 style="color:white; margin:0 0 10px 0;">Game over</h2>
+            <div style="color:white; font-size: 18px;">Score: <span id="final-score">0</span></div>
+            <button class="restart-btn" id="restart-btn">Restart</button>
+        </div>
+    </div>
+    
+    <div id="wire-game-ui">
+        <svg id="wire-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <path class="wire-path" id="wire-path" d="" />
+            <path class="wire-progress" id="wire-progress" d="" />
+            <circle class="wire-start" cx="5" cy="50" r="2" />
+            <circle class="wire-end" cx="95" cy="50" r="2" />
+        </svg>
+    </div>
+    
+    <div id="controls-container">
+        <!-- Controls removed as requested earlier, container kept empty to prevent JS errors if any -->
+    </div>
+    
+    <div class="dock"></div>
+    <div class="hand-cursor" id="handCircle"></div>
+    <video id="webcam" autoplay playsinline></video>
+
+    <script type="module">
+        import { FilesetResolver, HandLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
+
+        // --- Config ---
+        const STACKER_GRAVITY=0.6, MAX_FALL_SPEED=20;
+        const WIRE_TOLERANCE=24;
+
+        // --- State ---
+        let handX=window.innerWidth/2, handY=window.innerHeight/2;
+        let prevHandX=handX, prevHandY=handY;
+        let isPinching=false, isSpread=false, wasPinching=false;
+        let currentPinchDist = 0; 
+        let heldBall=null;
+
+        let isGlobalPenActive=false, isGlobalDrawing=false;
+        let globalStrokes=[], currentGlobalStroke=[], lastPinchReleaseTime=0;
+
+        // Painter State
+        let painterMode = 'pencil'; 
+
+        // Define objects array early
+        const objects = [];
+
+        // Stacker State
+        let stackerBlocks=[], isStackerActive=false, heldStackerBlock=null;
+        let stackerCameraY=0, stackerScore=0, stackerGameOver=false;
+        const stackerBase = { x: window.innerWidth/2 - 150, y: window.innerHeight - 50, w: 300, h: 40 };
+        
+        // Timer State
+        let stackerTimer = 150; 
+        let stackerInterval = null;
+
+        let isWireActive=false, wirePoints=[], wireGameOver=false, wireGameStarted=false;
+        let isTTSEnabled=true, lastSpokenText="", isListening=false, recognition=null;
+
+        const handCircle = document.getElementById("handCircle");
+        const video = document.getElementById("webcam");
+        const status = document.getElementById("status");
+        const globalCanvas = document.getElementById("global-canvas");
+        const globalCtx = globalCanvas.getContext('2d');
+        const fogCanvas = document.getElementById('fog-canvas');
+        const fogCtx = fogCanvas.getContext('2d');
+        const stackerUI = document.getElementById('stacker-ui');
+        const stackerFloor = document.getElementById('stacker-base'); 
+        const stackerScoreVal = document.getElementById('stacker-score-val');
+        const stackerTimerVal = document.getElementById('stacker-timer-val');
+        const stackerGameOverEl = document.getElementById('stacker-game-over');
+        const finalScoreEl = document.getElementById('final-score');
+        const restartBtn = document.getElementById('restart-btn');
+        const wireUI = document.getElementById('wire-game-ui');
+        const wirePathEl = document.getElementById('wire-path');
+        const wireProgressEl = document.getElementById('wire-progress'); 
+        
+        const painterUI = document.getElementById('painter-ui');
+        const btnPencil = document.getElementById('btn-pencil');
+        const btnEraser = document.getElementById('btn-eraser');
+
+        // Painter Tool Logic
+        btnPencil.addEventListener('click', () => {
+            painterMode = 'pencil';
+            btnPencil.classList.add('active');
+            btnEraser.classList.remove('active');
+            speak("Pencil tool");
+        });
+        
+        btnEraser.addEventListener('click', () => {
+            painterMode = 'eraser';
+            btnEraser.classList.add('active');
+            btnPencil.classList.remove('active');
+            speak("Eraser tool");
+        });
+
+        function resizeGlobalCanvas() {
+            globalCanvas.width = window.innerWidth; globalCanvas.height = window.innerHeight;
+            fogCanvas.width = window.innerWidth; fogCanvas.height = window.innerHeight;
+            stackerBase.x = window.innerWidth/2 - 150;
+            stackerBase.y = window.innerHeight - 50;
+            
+            // Explicitly set left position using calculation, no CSS transform needed now
+            stackerFloor.style.top = stackerBase.y + 'px';
+            stackerFloor.style.left = stackerBase.x + 'px';
+            
+            if(objects.length > 0) {
+                const colWidth = window.innerWidth / 3;
+                objects.forEach((obj, i) => {
+                    if(!obj.expanded) {
+                        obj.w = colWidth;
+                        obj.h = window.innerHeight;
+                        obj.x = (i * colWidth) + (colWidth / 2);
+                        obj.y = window.innerHeight / 2;
+                        obj.updateStyle();
+                        obj.updatePos();
+                    }
+                });
+            }
+
+            redrawGlobalCanvas();
+        }
+        window.addEventListener('resize', resizeGlobalCanvas);
+        resizeGlobalCanvas();
+
+        function redrawGlobalCanvas() {
+            globalCtx.clearRect(0,0,globalCanvas.width,globalCanvas.height);
+            globalCtx.lineCap='round'; globalCtx.lineJoin='round'; globalCtx.lineWidth=4; globalCtx.strokeStyle='rgba(255,255,255,0.8)';
+            for(const stroke of globalStrokes) {
+                if(stroke.length<2) continue;
+                globalCtx.beginPath(); globalCtx.moveTo(stroke[0].x,stroke[0].y);
+                for(let i=1; i<stroke.length; i++) globalCtx.lineTo(stroke[i].x,stroke[i].y);
+                globalCtx.stroke();
+            }
+            if(currentGlobalStroke.length>1) {
+                globalCtx.beginPath(); globalCtx.moveTo(currentGlobalStroke[0].x,currentGlobalStroke[0].y);
+                for(let i=1; i<currentGlobalStroke.length; i++) globalCtx.lineTo(currentGlobalStroke[i].x,currentGlobalStroke[i].y);
+                globalCtx.stroke();
+            }
+        }
+
+        // --- Stacker Physics ---
+        class StackerBlock {
+            constructor(x, y, w, h) {
+                this.x=x; this.y=y; this.w=w; this.h=h;
+                this.vx=0; this.vy=0; this.angle=0; this.av=0; 
+                this.isResting=false;
+                this.element=document.createElement('div');
+                this.element.className='stacker-block';
+                this.element.style.width=w+'px'; this.element.style.height=h+'px';
+                stackerUI.appendChild(this.element);
+            }
+            applyPhysics() {
+                if(this===heldStackerBlock) {
+                    this.x = handX - this.w/2;
+                    this.y = (handY - this.h/2) - stackerCameraY;
+                    this.vx = (handX - prevHandX) * 0.8;
+                    this.vy = (handY - prevHandY) * 0.8;
+                    this.angle *= 0.8; this.av = 0;
+                    this.isResting = false;
+                } else {
+                    this.vy += STACKER_GRAVITY;
+                    this.vy = Math.min(this.vy, MAX_FALL_SPEED);
+                    
+                    this.vx *= 0.98; this.av *= 0.95;
+                    this.angle += this.av;
+                    this.x += this.vx; this.y += this.vy;
+
+                    if(this.y > window.innerHeight + 1000) { /* kill it */ }
+                }
+            }
+            draw() {
+                const visualY = this.y + stackerCameraY;
+                this.element.style.transform = `translate(${this.x}px, ${visualY}px) rotate(${this.angle}deg)`;
+                
+                const killLine = stackerBase.y + 300;
+                if(this.y > killLine && this !== heldStackerBlock) triggerStackerGameOver();
+            }
+        }
+
+        function triggerStackerGameOver() {
+            if(stackerGameOver) return;
+            stackerGameOver=true;
+            if(stackerInterval) clearInterval(stackerInterval);
+            stackerGameOverEl.classList.add('visible');
+            finalScoreEl.innerText=stackerScore;
+            speak("Game over. Final score "+stackerScore);
+        }
+
+        function restartStacker() {
+            stackerBlocks.forEach(b=>b.element.remove());
+            stackerBlocks=[]; stackerScore=0; stackerCameraY=0; stackerGameOver=false;
+            stackerScoreVal.innerText='0'; stackerGameOverEl.classList.remove('visible');
+            heldStackerBlock=null;
+            
+            // Reset Timer
+            if(stackerInterval) clearInterval(stackerInterval);
+            stackerTimer = 150; 
+            updateTimerDisplay();
+            stackerInterval = setInterval(updateTimer, 1000);
+            
+            resizeGlobalCanvas();
+            speak("Restarting Stacker");
+        }
+        restartBtn.addEventListener('click',(e)=>{e.stopPropagation(); restartStacker();});
+
+        function initStacker() {
+            if(isStackerActive) return;
+            isStackerActive=true; stackerScore=0; stackerCameraY=0; stackerGameOver=false;
+            stackerBlocks=[]; stackerUI.classList.add('active');
+            stackerScoreVal.innerText='0'; stackerGameOverEl.classList.remove('visible');
+            
+            // Start Timer
+            if(stackerInterval) clearInterval(stackerInterval);
+            stackerTimer = 150;
+            updateTimerDisplay();
+            stackerInterval = setInterval(updateTimer, 1000);
+            
+            resizeGlobalCanvas();
+        }
+        
+        function clearStacker() {
+            isStackerActive=false; stackerUI.classList.remove('active');
+            stackerBlocks.forEach(b=>b.element.remove()); stackerBlocks=[]; heldStackerBlock=null;
+            if(stackerInterval) clearInterval(stackerInterval);
+        }
+        
+        function updateTimer() {
+            stackerTimer--;
+            if(stackerTimer <= 0) {
+                stackerTimer = 0;
+                updateTimerDisplay();
+                triggerStackerGameOver();
+            } else {
+                updateTimerDisplay();
+            }
+        }
+        
+        function updateTimerDisplay() {
+            const m = Math.floor(stackerTimer / 60);
+            const s = stackerTimer % 60;
+            stackerTimerVal.innerText = `${m}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function spawnStackerBlock() {
+            if(stackerGameOver) return;
+            const spawnY = (handY-20) - stackerCameraY;
+            const b = new StackerBlock(handX-40, spawnY, 80, 40);
+            stackerBlocks.push(b); heldStackerBlock=b;
+            speak("Block spawned");
+        }
+
+        function updateStackerPhysics() {
+            if(stackerGameOver) return;
+
+            stackerBlocks.forEach(b=>b.applyPhysics());
+
+            // --- GAME OVER ON TIPPING ---
+            stackerBlocks.forEach(b => {
+                if (b !== heldStackerBlock) {
+                    const angleMag = Math.abs(b.angle % 360);
+                    if (angleMag > 60 && angleMag < 300) {
+                        triggerStackerGameOver();
+                    }
+                }
+            });
+
+            // Base Collision
+            stackerBlocks.forEach(b => {
+                if(b===heldStackerBlock) return;
+                
+                if(checkOverlap(b, stackerBase)) {
+                    const bCenter = b.x + b.w/2;
+                    const baseCenter = stackerBase.x + stackerBase.w/2;
+                    const offset = bCenter - baseCenter;
+                    const limit = stackerBase.w/2; 
+                    
+                    if (Math.abs(offset) < limit) {
+                        // Center is supported
+                        if(b.y + b.h > stackerBase.y && b.y < stackerBase.y + stackerBase.h) {
+                            if(b.vy > 0) {
+                                b.y = stackerBase.y - b.h;
+                                b.vy = 0; b.angle *= 0.9; b.isResting = true;
+                            }
+                        }
+                    } else {
+                        // Center unsupported -> Tip over
+                        if(b.y + b.h > stackerBase.y && b.y < stackerBase.y + 20) {
+                            b.av += (offset > 0 ? 1 : -1) * 0.5;
+                            b.vx += (offset > 0 ? 1 : -1) * 0.5;
+                        }
+                    }
+                }
+            });
+
+            // Block-on-Block Collision
+            for(let i=0; i<stackerBlocks.length; i++) {
+                for(let j=0; j<stackerBlocks.length; j++) {
+                    if(i===j) continue;
+                    const top = stackerBlocks[i];
+                    const bot = stackerBlocks[j];
+                    if(top===heldStackerBlock || bot===heldStackerBlock) continue;
+
+                    if (top.x < bot.x + bot.w && top.x + top.w > bot.x &&
+                        top.y + top.h > bot.y && top.y < bot.y + bot.h) {
+                        
+                        if (top.y + top.h < bot.y + 20 && top.vy >= 0) {
+                            const topCenter = top.x + top.w/2;
+                            const botCenter = bot.x + bot.w/2;
+                            const offset = topCenter - botCenter;
+                            const limit = bot.w/2; 
+
+                            if (Math.abs(offset) < limit) {
+                                top.y = bot.y - top.h;
+                                top.vy = 0; top.angle *= 0.9; top.vx *= 0.9;
+                                top.isResting = true;
+                            } else {
+                                top.av += (offset > 0 ? 1 : -1) * 0.8;
+                                top.vx += (offset > 0 ? 1 : -1) * 0.5;
+                                top.y -= 2; 
+                            }
+                        }
+                    }
+                }
+            }
+
+            stackerCameraY = 0; 
+            const visualBaseY = stackerBase.y + stackerCameraY;
+            stackerFloor.style.top = visualBaseY + 'px';
+
+            stackerBlocks.forEach(b=>b.draw());
+
+            const resting = stackerBlocks.filter(b=> b.isResting && Math.abs(b.angle%360) < 45 && b!==heldStackerBlock).length;
+            if(resting > stackerScore) { stackerScore=resting; stackerScoreVal.innerText=stackerScore; }
+        }
+
+        function checkOverlap(r1, r2) {
+            return !(r2.x > r1.x + r1.w || r2.x + r2.w < r1.x || r2.y > r1.y + r1.h || r2.y + r2.h < r1.y);
+        }
+
+        // --- Wire Game ---
+        function initWire() {
+            if(isWireActive) return; isWireActive=true; wireGameOver=false; wireGameStarted=false; wireUI.classList.add('active'); handCircle.classList.add('ring-mode'); generateWirePath(); speak("Electric wire active");
+        }
+        function clearWire() {
+            isWireActive=false; wireGameStarted=false; wireUI.classList.remove('active'); handCircle.classList.remove('ring-mode','failed'); wirePathEl.classList.remove('buzz');
+        }
+        function generateWirePath() {
+            let d="M 5 50 ", pts=[{x:5,y:50}];
+            let totalDist = 0;
+            
+            for(let i=1;i<=8;i++) {
+                const x=5+(i*11.25), y=Math.max(10,Math.min(90,50+(Math.random()-0.5)*60));
+                d+=`L ${x} ${y} `; pts.push({x:x,y:y});
+            }
+            d+="L 95 50"; pts.push({x:95,y:50}); 
+            wirePoints=pts; 
+            
+            wirePathEl.setAttribute('d',d);
+            wireProgressEl.setAttribute('d',d);
+            
+            const len = wirePathEl.getTotalLength();
+            wireProgressEl.style.strokeDasharray = `0 ${len}`;
+            wireProgressEl.dataset.totalLength = len;
+        }
+        
+        function checkWireCollision() {
+            if(wireGameOver) return;
+            const r=wireUI.getBoundingClientRect();
+            const nx=((handX-r.left)/r.width)*100, ny=((handY-r.top)/r.height)*100;
+            
+            if (Math.hypot(nx - 5, ny - 50) < 5) {
+                wireGameStarted = true;
+            }
+
+            if (!wireGameStarted) {
+                 const domTotalLen = parseFloat(wireProgressEl.dataset.totalLength || 100);
+                 wireProgressEl.style.strokeDasharray = `0 ${domTotalLen}`;
+                 return;
+            }
+            
+            if(Math.hypot(nx-95,ny-50)<5) { speak("Cleared!"); initWire(); return; }
+            
+            let minD=Infinity;
+            let currentPathPos = 0;
+            let closestPathPos = 0;
+            
+            for(let i=0;i<wirePoints.length-1;i++) {
+                const p1=wirePoints[i], p2=wirePoints[i+1];
+                const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+                
+                const A=nx-p1.x, B=ny-p1.y, C=p2.x-p1.x, D=p2.y-p1.y;
+                const dot=A*C+B*D, lenSq=C*C+D*D;
+                let t=lenSq===0?-1:dot/lenSq, xx, yy;
+                
+                if(t<0){ t=0; xx=p1.x; yy=p1.y; } 
+                else if(t>1){ t=1; xx=p2.x; yy=p2.y; } 
+                else { xx=p1.x+t*C; yy=p1.y+t*D; }
+                
+                const d = Math.hypot(nx-xx, ny-yy);
+                
+                if (d < minD) {
+                    minD = d;
+                    closestPathPos = currentPathPos + (t * segLen);
+                }
+                
+                currentPathPos += segLen;
+            }
+            
+            const totalGeoLen = currentPathPos; 
+            const domTotalLen = parseFloat(wireProgressEl.dataset.totalLength || 100);
+            const progressRatio = closestPathPos / totalGeoLen;
+            const drawLen = progressRatio * domTotalLen;
+            
+            wireProgressEl.style.strokeDasharray = `${drawLen} ${domTotalLen}`;
+
+            if(minD*(window.innerHeight/100) > WIRE_TOLERANCE) { 
+                wireGameOver=true; 
+                wireGameStarted = false; 
+                handCircle.classList.add('failed'); 
+                wirePathEl.classList.add('buzz'); 
+                speak("Buzz!"); 
+                setTimeout(()=>{
+                    handCircle.classList.remove('failed');
+                    wirePathEl.classList.remove('buzz');
+                    wireGameOver=false;
+                },1000); 
+            }
+        }
+
+        function speak(t) { if(!isTTSEnabled||!t||t===lastSpokenText)return; window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(t)); lastSpokenText=t; }
+
+        // --- Main Loop ---
+        class PhysicsObject {
+            constructor(x, y, theme, index, total) {
+                this.index = index;
+                this.total = total;
+                this.theme = theme;
+                this.el = document.createElement('div');
+                this.el.className = 'widget';
+                this.expanded = false;
+                
+                this.w = window.innerWidth / 3;
+                this.h = window.innerHeight;
+                this.x = (index * this.w) + (this.w / 2);
+                this.y = window.innerHeight / 2;
+
+                // REMOVED INLINE BACKGROUND COLOR: this.el.style.backgroundColor = theme.bg;
+                
+                this.el.innerHTML = `
+                    <div class="widget-placeholder-img">${theme.icon}</div>
+                    <div class="widget-content-wrapper">
+                        <div class="widget-label">${theme.label}</div>
+                        <div class="widget-desc">${theme.desc}</div>
+                    </div>
+                    <div class="close-btn">✕</div>
+                `;
+                
+                this.close = this.el.querySelector('.close-btn');
+                document.body.appendChild(this.el);
+                
+                this.isBlue = (theme.name === "Blue");
+                this.isPink = (theme.name === "Pink");
+                this.isGreen = (theme.name === "Green");
+                
+                this.updateStyle();
+                this.updatePos();
+            }
+
+            expand() {
+                if(this.expanded) return;
+                this.expanded = true;
+                this.el.classList.add('expanded');
+                
+                this.w = window.innerWidth;
+                this.h = window.innerHeight;
+                this.x = window.innerWidth / 2;
+                this.y = window.innerHeight / 2;
+                
+                this.updateStyle();
+                this.updatePos();
+
+                speak("Opening " + this.theme.label);
+                
+                if (this.isBlue) { 
+                    fogCanvas.classList.add('active'); 
+                    document.getElementById('hidden-painting').classList.add('active'); 
+                    // Clear fog canvas to transparent for drawing
+                    fogCtx.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
+                    
+                    // Show Painter UI
+                    painterUI.classList.add('active');
+                }
+                if (this.isPink) initStacker();
+                if (this.isGreen) initWire();
+            }
+
+            collapse() {
+                this.expanded = false;
+                this.el.classList.remove('expanded');
+                
+                const colWidth = window.innerWidth / 3;
+                this.w = colWidth;
+                this.h = window.innerHeight;
+                this.x = (this.index * colWidth) + (colWidth / 2);
+                this.y = window.innerHeight / 2;
+                
+                this.updateStyle();
+                this.updatePos();
+
+                if (this.isBlue) { 
+                    fogCanvas.classList.remove('active'); 
+                    document.getElementById('hidden-painting').classList.remove('active'); 
+                    painterUI.classList.remove('active');
+                }
+                if (this.isPink) clearStacker();
+                if (this.isGreen) clearWire();
+            }
+
+            updateStyle() {
+                this.el.style.width = this.w + 'px';
+                this.el.style.height = this.h + 'px';
+            }
+            
+            updatePos() {
+                this.el.style.left = this.x + 'px';
+                this.el.style.top = this.y + 'px';
+            }
+        }
+
+        const palette = [
+            {
+                name: "Blue", 
+                label: "Pixel painter", 
+                // Replace the emoji with an <img> tag. 
+                // Adjust 'src' to your file path.
+                icon: '<img src="paint-bg.png" alt="Painter" style="width: 100%; height: 100%; object-fit: fill;">', 
+                bg: 'rgba(59, 130, 246, 0.2)', 
+                desc: "Pinch your fingers to draw. Draw something cool!"
+            },
+            {
+                name: "Pink", 
+                label: "Stacker", 
+                icon: '<img src="blocks-bg.png" alt="Stacker" style="width: 100%; height: 100%; object-fit: fill;">', 
+                bg: 'rgba(236, 72, 153, 0.2)', 
+                desc: "Pinch to grab blocks and stack them high. Don't let them tip over!"
+            },
+            {
+                name: "Green", 
+                label: "Electric wire", 
+                icon: '<img src="lightning-bg.png" alt="Wire" style="width: 100%; height: 100%; object-fit: fill;">', 
+                bg: 'rgba(16, 185, 129, 0.2)', 
+                desc: "Guide the ring along the wire without touching it. Start at the left dot."
+            }
+        ];
+
+        // Initialize Menu Panels
+        for(let i=0; i<palette.length; i++) {
+            objects.push(new PhysicsObject(0, 0, palette[i], i, palette.length));
+        }
+
+        function gameLoop() {
+            handCircle.style.left = handX + 'px'; 
+            handCircle.style.top = handY + 'px';
+            handCircle.className = `hand-cursor ${isPinching?'pinched':''} ${isSpread?'spread':''} ${isWireActive?'ring-mode':''} ${wireGameOver?'failed':''}`;
+
+            if(isStackerActive) updateStackerPhysics();
+            if(isWireActive) checkWireCollision();
+
+            // --- Pixel Painter Logic ---
+            // Draw continuous line if Blue widget expanded
+            if(objects.find(o=>o.isBlue && o.expanded)) {
+                
+                if (isPinching) {
+                    fogCtx.lineWidth = 10; // Fixed brush size
+                    fogCtx.lineCap = 'round';
+                    fogCtx.lineJoin = 'round';
+
+                    if (painterMode === 'pencil') {
+                        fogCtx.globalCompositeOperation = 'source-over';
+                        fogCtx.strokeStyle = '#ffffff'; // White stroke
+                    } else {
+                        fogCtx.globalCompositeOperation = 'destination-out';
+                        fogCtx.strokeStyle = 'rgba(0,0,0,1)';
+                    }
+
+                    fogCtx.beginPath();
+                    fogCtx.moveTo(prevHandX, prevHandY);
+                    fogCtx.lineTo(handX, handY);
+                    fogCtx.stroke();
+                }
+            }
+
+            // Interactions
+            let hoverClose = null; 
+            let overSpawn = false; 
+            let overRestart = false; 
+            let closestStacker = null;
+            let hoveredPanel = null;
+            let overPainterUI = false; // Prevent closing if interacting with painter UI
+            
+            const activeWidget = objects.find(o => o.expanded);
+
+            if (!activeWidget) {
+                // AABB Collision for Panel Selection
+                for(let i=0; i<objects.length; i++) {
+                    const o = objects[i];
+                    // Simple AABB check
+                    if (handX > o.x - o.w/2 && handX < o.x + o.w/2 &&
+                        handY > o.y - o.h/2 && handY < o.y + o.h/2) {
+                        hoveredPanel = o;
+                        // ADDED: Hand Hover State
+                        o.el.classList.add('hand-hover');
+                    } else {
+                        // REMOVED: Hand Hover State
+                        o.el.classList.remove('hand-hover');
+                    }
+                }
+            } else {
+                // CLEAR HOVER STATE when game is active
+                objects.forEach(o => o.el.classList.remove('hand-hover'));
+
+                if(isStackerActive) {
+                    if(stackerGameOver) {
+                        const r=restartBtn.getBoundingClientRect();
+                        if(handX>r.left && handX<r.right && handY>r.top && handY<r.bottom) overRestart=true;
+                    } else {
+                        const s=document.querySelector('.stacker-spawner').getBoundingClientRect();
+                        if(handX>s.left && handX<s.right && handY>s.top && handY<s.bottom) overSpawn=true;
+                        let minJ=60;
+                        stackerBlocks.forEach(b=>{ const d=Math.hypot(b.x+b.w/2-handX, (b.y+stackerCameraY)+b.h/2-handY); if(d<minJ){minJ=d;closestStacker=b;} });
+                    }
+                }
+                
+                // Check if hovering over Painter UI buttons
+                if (objects.find(o=>o.isBlue && o.expanded)) {
+                    const pRect = painterUI.getBoundingClientRect();
+                    // Expand hit area slightly
+                    if (handX > pRect.left - 20 && handX < pRect.right + 20 &&
+                        handY > pRect.top - 20 && handY < pRect.bottom + 20) {
+                        overPainterUI = true;
+                        
+                        // Check Individual Buttons for Hover Effect
+                        const pencilRect = btnPencil.getBoundingClientRect();
+                        const eraserRect = btnEraser.getBoundingClientRect();
+                        
+                        if (handX > pencilRect.left && handX < pencilRect.right && handY > pencilRect.top && handY < pencilRect.bottom) {
+                            if(isPinching && !wasPinching) btnPencil.click();
+                        }
+                        if (handX > eraserRect.left && handX < eraserRect.right && handY > eraserRect.top && handY < eraserRect.bottom) {
+                            if(isPinching && !wasPinching) btnEraser.click();
+                        }
+                    }
+                }
+                
+                if (activeWidget.expanded && !overPainterUI) {
+                    const b = activeWidget.close.getBoundingClientRect();
+                    if(handX>b.left && handX<b.right && handY>b.top && handY<b.bottom) { 
+                        hoverClose = activeWidget; 
+                        activeWidget.close.classList.add('hovered'); 
+                    } else {
+                        activeWidget.close.classList.remove('hovered');
+                    }
+                }
+            }
+
+            if(isPinching && !wasPinching) {
+                if (hoverClose) {
+                    hoverClose.collapse();
+                } 
+                else if (overRestart) {
+                    restartStacker();
+                }
+                else if (overSpawn) {
+                    spawnStackerBlock();
+                }
+                else if (closestStacker) {
+                    heldStackerBlock = closestStacker;
+                }
+                else if (!activeWidget && hoveredPanel) {
+                    // Activate Game from Menu
+                    hoveredPanel.expand();
+                }
+            } else if(!isPinching && wasPinching) {
+                heldStackerBlock=null;
+            }
+            
+            wasPinching=isPinching;
+            requestAnimationFrame(gameLoop);
+        }
+
+        // AI Setup
+        let lastVid=-1;
+        async function setupAI() {
+            const v = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
+            const hl = await HandLandmarker.createFromOptions(v, {
+                baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", delegate: "GPU" },
+                runningMode: "VIDEO", numHands: 1
+            });
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+            video.srcObject = stream;
+            video.addEventListener("loadeddata", () => {
+                const predict = () => {
+                    if(video.currentTime!==lastVid) {
+                        lastVid=video.currentTime;
+                        const res = hl.detectForVideo(video, performance.now());
+                        if(res.landmarks.length) {
+                            const l=res.landmarks[0];
+                            const tx=(1-l[8].x)*window.innerWidth, ty=l[8].y*window.innerHeight;
+                            handX+=(tx-handX)*0.15; handY+=(ty-handY)*0.15;
+                            prevHandX=handX; prevHandY=handY;
+                            
+                            // Updated pinch distance calculation for global use
+                            currentPinchDist = Math.hypot(l[8].x-l[4].x, l[8].y-l[4].y);
+                            
+                            isPinching = currentPinchDist < 0.08;
+                            isSpread = Math.hypot(l[4].x-l[20].x, l[4].y-l[20].y)>0.25;
+                        } else { isPinching=false; isSpread=false; }
+                    }
+                    requestAnimationFrame(predict);
+                };
+                predict();
+                status.style.opacity=0;
+            });
+        }
+        setupAI();
+
+        if(window.SpeechRecognition || window.webkitSpeechRecognition) {
+            recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.continuous=true; recognition.lang='en-US';
+            recognition.onresult=(e)=>{ const t=e.results[e.results.length-1][0].transcript.toLowerCase(); if(t.includes("restart"))restartStacker(); };
+            
+            // Fix: Check if micToggle exists before assigning onclick
+            // micToggle removed so removed event binding
+        }
+        // ttsCheckbox.onchange=(e)=>{isTTSEnabled=e.target.checked;}; // Removed ttsCheckbox
+        gameLoop();
+    </script>
+</body>
+</html>
